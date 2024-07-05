@@ -46305,6 +46305,10 @@ wangpc                          //
 wmbullet                        //
 wmbulletf                       //
 
+@source:testcpu/testcpu.cpp
+
+@source:testcpu/empty.cpp
+
 @source:wavemate/jupiter.cpp
 jupiter2                        //
 jupiter3                        //
