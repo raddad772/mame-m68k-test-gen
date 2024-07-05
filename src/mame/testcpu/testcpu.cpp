@@ -10,8 +10,10 @@
 
 
 #include "emu.h"
-#include "cpu/powerpc/ppc.h"
+#include "cpu/m68000/m68000.h"
+#include "stdio.h"
 
+#pragma clang diagnostic ignored "-Wunused-variable"
 
 //**************************************************************************
 //  CONSTANTS
@@ -35,6 +37,7 @@ public:
 			m_ram(*this, "ram"),
 			m_space(nullptr)
 	{
+        //m_cpu->m_icountptr = 0;
 	}
 
 	// timer callback; used to wrest control of the system
@@ -56,11 +59,11 @@ public:
 		{
 			// write the instruction to execute, followed by a BLR which will terminate the
 			// basic block in the DRC
-			m_space->write_dword(RAM_BASE, sample_instruction);
-			m_space->write_dword(RAM_BASE + 4, 0x4e800020);
+			//m_space->write_dword(RAM_BASE, sample_instruction);
+			//m_space->write_dword(RAM_BASE + 4, 0x4e800020);
 
 			// initialize the register state
-			m_cpu->set_state_int(PPC_PC, RAM_BASE);
+			/*m_cpu->set_state_int(PPC_PC, RAM_BASE);
 			for (int regnum = 0; regnum < 32; regnum++)
 				m_cpu->set_state_int(PPC_R0 + regnum, regnum | (regnum << 8) | (regnum << 16) | (regnum << 24));
 			m_cpu->set_state_int(PPC_CR, 0);
@@ -79,13 +82,13 @@ public:
 			dump_state(true);
 
 			// execute one instruction
-			*m_cpu->m_icountptr = 0;
 			m_cpu->run();
 
 			// dump the final register state
 			printf("Final state:\n");
-			dump_state(false);
+			dump_state(false);*/
 		}
+        *m_cpu->m_icountptr = 0;
 
 		// all done; just bail
 		throw emu_fatalerror(0, "All done");
@@ -98,16 +101,16 @@ public:
 		m_space = &m_cpu->space(AS_PROGRAM);
 
 		// configure DRC in the most compatible mode
-		m_cpu->ppcdrc_set_options(PPCDRC_COMPATIBLE_OPTIONS);
+		//m_cpu->ppcdrc_set_options(PPCDRC_COMPATIBLE_OPTIONS);
 
 		// set a timer to go off right away
-		timer_alloc(FUNC(timer_tick), this)->adjust(attotime::zero);
+		timer_alloc(FUNC(testcpu_state::timer_tick), this)->adjust(attotime::zero);
 	}
 
 	// dump the current CPU state
 	void dump_state(bool disassemble)
 	{
-		char buffer[256];
+		/*char buffer[256];
 		u8 instruction[32];
 		buffer[0] = 0;
 		int bytes = 0;
@@ -144,7 +147,7 @@ public:
 		{
 			printf("F%-2d: %10g   ", regnum, u2d(m_cpu->state_int(PPC_F0 + regnum)));
 			if (regnum % 4 == 3) printf("\n");
-		}
+		}*/
 	}
 
 	// report reads from anywhere
@@ -167,7 +170,7 @@ public:
 	void ppc_mem(address_map &map);
 private:
 	// internal state
-	required_device<ppc603e_device> m_cpu;
+	required_device<m68000_device> m_cpu;
 	required_shared_ptr<u64> m_ram;
 	address_space *m_space;
 };
@@ -180,8 +183,8 @@ private:
 
 void testcpu_state::ppc_mem(address_map &map)
 {
-	map(RAM_BASE, RAM_BASE+7).ram().share("ram");
-	map(0x00000000, 0xffffffff).rw(this, FUNC(testcpu_state::general_r), FUNC(testcpu_state::general_w));
+	//map(RAM_BASE, RAM_BASE+7).ram().share("ram");
+	map(0x00000000, 0xffffffff).rw(FUNC(testcpu_state::general_r), FUNC(testcpu_state::general_w));
 }
 
 
@@ -193,9 +196,10 @@ void testcpu_state::ppc_mem(address_map &map)
 void testcpu_state::testcpu(machine_config &config)
 {
 	// CPUs
-	PPC603E(config, m_cpu, 66000000);
-	m_cpu->set_bus_frequency(66000000);  // Multiplier 1, Bus = 66MHz, Core = 66MHz
-	m_cpu->set_addrmap(AS_PROGRAM, &testcpu_state::ppc_mem);
+    printf("\nHEY THERE!");
+	//PPC603E(config, m_cpu, 66000000);
+	//m_cpu->set_bus_frequency(66000000);  // Multiplier 1, Bus = 66MHz, Core = 66MHz
+	//m_cpu->set_addrmap(AS_PROGRAM, &testcpu_state::ppc_mem);
 }
 
 
@@ -205,7 +209,7 @@ void testcpu_state::testcpu(machine_config &config)
 //**************************************************************************
 
 ROM_START( testcpu )
-	ROM_REGION( 0x10, "user1", ROMREGION_ERASEFF )
+	//ROM_REGION( 0x10, "user1", ROMREGION_ERASEFF )
 ROM_END
 
 
@@ -214,4 +218,4 @@ ROM_END
 //  GAME DRIVERS
 //**************************************************************************
 
-GAME( 2012, testcpu, 0, testcpu, 0, driver_device, 0, ROT0, "MAME", "CPU Tester", MACHINE_NO_SOUND )
+GAME( 2012, testcpu, 0, testcpu, 0, testcpu_state, empty_init, ROT0, "MAME", "CPU Tester", MACHINE_NO_SOUND )

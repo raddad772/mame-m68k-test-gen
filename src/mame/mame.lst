@@ -46306,8 +46306,7 @@ wmbullet                        //
 wmbulletf                       //
 
 @source:testcpu/testcpu.cpp
-
-@source:testcpu/empty.cpp
+testcpu
 
 @source:wavemate/jupiter.cpp
 jupiter2                        //

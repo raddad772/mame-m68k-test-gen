@@ -101,13 +101,13 @@ public:
 		m_cpu->ppcdrc_set_options(PPCDRC_COMPATIBLE_OPTIONS);
 
 		// set a timer to go off right away
-		timer_alloc(FUNC(timer_tick), this)->adjust(attotime::zero);
+		timer_alloc(FUNC(testcpu_state::timer_tick), this)->adjust(attotime::zero);
 	}
 
 	// dump the current CPU state
 	void dump_state(bool disassemble)
 	{
-		char buffer[256];
+		/*char buffer[256];
 		u8 instruction[32];
 		buffer[0] = 0;
 		int bytes = 0;
@@ -144,7 +144,7 @@ public:
 		{
 			printf("F%-2d: %10g   ", regnum, u2d(m_cpu->state_int(PPC_F0 + regnum)));
 			if (regnum % 4 == 3) printf("\n");
-		}
+		}*/
 	}
 
 	// report reads from anywhere
