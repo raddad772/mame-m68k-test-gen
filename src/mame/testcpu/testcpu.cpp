@@ -54,6 +54,8 @@ public:
 			0x986a0070      // stb r3,0x0070(r10)
 		};
 
+        printf("\nHACK CODE IN HERE!");
+
 		// iterate over instructions
 		for (auto & sample_instruction : sample_instructions)
 		{
@@ -151,7 +153,7 @@ public:
 	}
 
 	// report reads from anywhere
-	u64 general_r(offs_t offset, u64 mem_mask = ~0)
+	u16 general_r(offs_t offset, u16 mem_mask = ~0)
 	{
 		u64 fulloffs = offset;
 		u64 result = fulloffs + (fulloffs << 8) + (fulloffs << 16) + (fulloffs << 24) + (fulloffs << 32);
@@ -160,7 +162,7 @@ public:
 	}
 
 	// report writes to anywhere
-	void general_w(offs_t offset, u64 data, u64 mem_mask = ~0)
+	void general_w(offs_t offset, u16 data, u16 mem_mask = ~0)
 	{
 		printf("Write to %08X & %08X%08X = %08X%08X\n", offset * 8, (int)((mem_mask&0xffffffff00000000LL) >> 32) , (int)(mem_mask&0xffffffff), (int)((data&0xffffffff00000000LL) >> 32), (int)(data&0xffffffff));
 	}
@@ -171,7 +173,7 @@ public:
 private:
 	// internal state
 	required_device<m68000_device> m_cpu;
-	required_shared_ptr<u64> m_ram;
+	required_shared_ptr<u16> m_ram;
 	address_space *m_space;
 };
 
@@ -184,7 +186,8 @@ private:
 void testcpu_state::ppc_mem(address_map &map)
 {
 	//map(RAM_BASE, RAM_BASE+7).ram().share("ram");
-	map(0x00000000, 0xffffffff).rw(FUNC(testcpu_state::general_r), FUNC(testcpu_state::general_w));
+    map(0x0000, 0xffff).ram().share("ram");
+	map(0x00000000, 0xffffff).rw(FUNC(testcpu_state::general_r), FUNC(testcpu_state::general_w));
 }
 
 
@@ -196,7 +199,9 @@ void testcpu_state::ppc_mem(address_map &map)
 void testcpu_state::testcpu(machine_config &config)
 {
 	// CPUs
-    printf("\nHEY THERE!");
+    /* basic machine hardware */
+    M68000(config, m_cpu, XTAL(3'579'545));
+    m_cpu->set_addrmap(AS_PROGRAM, &testcpu_state::ppc_mem);
 	//PPC603E(config, m_cpu, 66000000);
 	//m_cpu->set_bus_frequency(66000000);  // Multiplier 1, Bus = 66MHz, Core = 66MHz
 	//m_cpu->set_addrmap(AS_PROGRAM, &testcpu_state::ppc_mem);
