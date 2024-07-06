@@ -5,14 +5,14 @@
 #define M32 4
 #define M64 8
 
-#define R8 cR[M8](ptr, 0); ptr += 1
-#define R16 cR[M16](ptr, 0); ptr += 2
-#define R32 cR[M32](ptr, 0); ptr += 4
-#define R64 cR[M64](ptr, 0); ptr += 8
-#define W8(v) cW[M8](ptr, 0); ptr += 1
-#define W16(v) cW[M16](ptr, 0); ptr += 2
-#define W32(v) cW[M32](ptr, 0); ptr += 4
-#define W64(v) cW[M64](ptr, 0); ptr += 8
+#define R8 cR[M8](ts.ptr, 0); ts.ptr += 1
+#define R16 cR[M16](ts.ptr, 0); ts.ptr += 2
+#define R32 cR[M32](ts.ptr, 0); ts.ptr += 4
+#define R64 cR[M64](ts.ptr, 0); ts.ptr += 8
+#define W8(v) cW[M8](ts.ptr, 0, v); ts.ptr += 1
+#define W16(v) cW[M16](ts.ptr, 0, v); ts.ptr += 2
+#define W32(v) cW[M32](ts.ptr, 0, v); ts.ptr += 4
+#define W64(v) cW[M64](ts.ptr, 0, v); ts.ptr += 8
 
 #define MAX_RAM_PAIRS 100
 #define MAX_TRANSACTIONS 100

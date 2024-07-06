@@ -19,6 +19,7 @@
 
 #define NUMTESTS 800
 #define ICOUNT_START 220
+#define ALLOC_BUF_SIZE (10 * 1024 * 1024)
 
 #pragma clang diagnostic ignored "-Wunused-variable"
 #pragma clang diagnostic ignored "-Wc++11-narrowing"
@@ -34,7 +35,7 @@ struct m68k_test_struct {
     u32 log_transactions;
 
     u8 *buf;
-    u8 *test_ptr;
+    u8 *ptr;
 };
 
 
@@ -62,7 +63,6 @@ public:
 			m_ram(*this, "ram"),
 			m_space(nullptr)
 	{
-        //m_cpu->m_icountptr = 0;
 	}
 
 	void idle(int howmany)
@@ -78,12 +78,13 @@ public:
     // timer callback; used to wrest control of the system
     TIMER_CALLBACK_MEMBER(timer_tick)
 	{
-        ts.buf = (u8 *)malloc(1024 * 1024 * 10);
+        ts.buf = (u8 *)malloc(ALLOC_BUF_SIZE);
+        assert(ts.buf);
         m_cpu->m_idle_func_ptr = (void *)this;
         m_cpu->m_idle_func = &m_idle_bridge; //std::bind(&testcpu_state::idle, *self, _2);
 
         //struct m68k_gentest_item* gti;
-        for (u32 i = 0; i < 1; i++) {
+        for (u32 i = 0; i < M68K_NUM_GENTEST_ITEMS; i++) {
             //gti = &m68k_gentests[i];
             generate_test(m68k_gentests[i]);
         }
@@ -126,11 +127,15 @@ public:
 		throw emu_fatalerror(0, "All done");
 	}
 
-    void generate_test(struct m68k_gentest_item &gti);
+    void write_tests_to_file(const struct m68k_gentest_item &gti);
+    void generate_test(const struct m68k_gentest_item &gti);
     void initial_random_state(struct m68k_test_state *s, u32 opcode);
     void copy_state_to_cpu(struct m68k_test_state &ts);
     void finalize_transactions();
     void copy_state_from_cpu(struct m68k_test_state &ts);
+    void write_name(const char *name);
+    void write_transactions();
+    void write_state(struct m68k_test_state *state);
 
 	virtual void machine_start() override
 	{
@@ -419,26 +424,210 @@ void testcpu_state::copy_state_from_cpu(struct m68k_test_state &ts)
     }
 }
 
-void testcpu_state::generate_test(struct m68k_gentest_item &gti)
+void testcpu_state::write_name(const char *name)
+{
+    u8 *name_start = ts.ptr;
+    ts.ptr += 8;
+
+    u32 a = strlen(name);
+    if (a > 64) a = 64;
+
+    W32(a);
+
+    for (u32 i = 0; i < a; i++) {
+        *ts.ptr = name[i];
+        ts.ptr++;
+    }
+
+    // struct.pack_into("<II", buffer, name_start, ptr - name_start, 0x89ABCDEF)
+    cW32(name_start, 0, ts.ptr - name_start);
+    cW32(name_start, 4, 0x89ABCDEF);
+}
+
+void testcpu_state::write_transactions()
+{
+    struct m68k_test_transactions *tt = &ts.cur->transactions;
+    struct m68k_test *tst = ts.cur;
+
+    // transactions_start = ptr
+
+    // ptr += 8
+    u8* transactions_start = ts.ptr;
+    ts.ptr += 8;
+
+    // struct.pack_into("<II", buffer, ptr, length, len(transactions))
+    // ptr += 8
+    W32(ts.cur->num_cycles);
+    W32(tt->num_transactions);
+
+    // for t in transactions:
+    //     f = t[0]
+    //     if f == 'n':
+    //         tw = 0
+    //     elif f == 'w':
+    //         tw = 1
+    //     elif f == 'r':
+    //         tw = 2
+    //     elif f == 't':
+    //         tw = 3
+    //     else:
+    //         print('UNKNOWN KIND?', f)
+    //         continue
+    for (u32 i = 0; i < tt->num_transactions; i++) {
+        struct transaction *t = &tt->items[i];
+        u32 tw = 5;
+        if (t->kind == tk_idle_cycles) {
+            tw = 0;
+        }
+        else if (t->kind == tk_read) {
+            tw = 2;
+        }
+        else if (t->kind == tk_write) {
+            tw = 3;
+        }
+        else {
+            assert(1==0);
+        }
+
+        //     struct.pack_into("<BI", buffer, ptr, tw, t[1])
+        //     '''print(type(t[1]))
+        //     if t[1] > 200:
+        //         print('WHAT? ' + str(t[1]))'''
+        //     ptr += 5
+        W8(tw);
+        W32(t->len);
+
+        //     if tw == 0: continue
+        if (tw == 0) continue;
+
+        //     # r/w/t, len, FC, addr_bus, .b/.w, data_bus
+        //     struct.pack_into("<IIII", buffer, ptr, t[2], t[3], 0 if t[4] == '.b' else 1, t[5])
+        //     ptr += 16
+        W32(t->fc);
+        W32(t->addr_bus);
+        W32(t->sz - 1);
+        W32(t->data_bus);
+    }
+
+    cW32(transactions_start, 0, ts.ptr - transactions_start);
+    cW32(transactions_start, 4, 0x456789AB);
+    // struct.pack_into("<II", buffer, transactions_start, ptr - transactions_start, 0x456789AB)
+    // return ptr
+}
+
+void testcpu_state::write_state(struct m68k_test_state *state)
+{
+    //state_start = ptr
+     //# Make space for state size and magic number 0x12345678
+    //ptr += 8
+    u8 *state_start = ts.ptr;
+    ts.ptr += 8;
+
+    //# Registers. Pack as 32 bits BECAUSE
+    //for a in REG_ORDER:
+    //    struct.pack_into("<I", buffer, ptr, state[a])
+    //    ptr += 4
+    for (u32 i = 0; i < 8; i++) {
+        W32(state->d[i]);
+    }
+
+    for (u32 i =0; i < 7; i++) {
+        W32(state->a[i]);
+    }
+
+    W32(state->usp);
+    W32(state->ssp);
+    W32(state->sr);
+    W32(state->pc);
+
+    //# Prefetch
+    //struct.pack_into("<II", buffer, ptr, state['prefetch'][0], state['prefetch'][1])
+    //ptr += 8
+    W32(state->prefetch[0]);
+    W32(state->prefetch[1]);
+
+    // # RAM 6-byte values instead of 5-byte
+    // # address, value   addr=32bit value=8bit
+    //struct.pack_into("<I", buffer, ptr, len(state['ram']))
+    //ptr += 4
+    W32(state->num_RAM);
+
+    //done_addrs = set()
+    //for addr, val in state['ram']:
+    //    if addr >= 0x1000000:
+    //        print('BAD ADDR', addr)
+    //    if addr in done_addrs:
+    //        print('DUPLICATE ADDR', addr)
+    //    done_addrs.add(addr)
+    //    struct.pack_into("<IB", buffer, ptr, addr, val)
+    //    ptr += 5
+    for (u32 i = 0; i < state->num_RAM; i++) {
+        struct RAM_pair *p = &state->RAM_pairs[i];
+        assert(p->addr < 0x1000000);
+        W32(p->addr);
+        W16(p->val);
+    }
+
+    //struct.pack_into("<II", buffer, state_start, ptr - state_start, 0x01234567)
+    //return ptr
+    cW32(state_start, 0, ts.ptr - state_start);
+    cW32(state_start, 4, 0x01234567);
+}
+
+void testcpu_state::write_tests_to_file(const struct m68k_gentest_item &gti)
+{
+    ts.ptr = ts.buf;
+    W32(0x1A3F5D71);
+    W32(NUMTESTS);
+    for (i32 i = 0; i < NUMTESTS; i++) {
+        assert(ts.ptr < ALLOC_BUF_SIZE);
+        u8 *test_start = ts.ptr;
+        ts.ptr += 8;
+
+        struct m68k_test *tst = ts.cur = &ts.tests[i];
+
+        write_name(tst->name);
+
+        write_state(&tst->initial);
+        write_state(&tst->final);
+
+        write_transactions();
+        cW32(test_start, 0, ts.ptr - test_start);
+        cW32(test_start, 4, 0xABC12367);
+    }
+
+    char PATH[500];
+    snprintf(PATH, 500, "/Users/dave/dev/m68000_json/v1/%s.json.bin", gti.name);
+    remove(PATH);
+
+    printf("\nWRITE FILE %s", PATH);
+    FILE *f = fopen(PATH, "wb");
+    assert(f);
+    u32 to_write = ts.ptr - ts.buf;
+    fflush(stdout);
+    fwrite(ts.buf, 1, ts.ptr - ts.buf, f);
+    fclose(f);
+    printf("\n");
+}
+
+void testcpu_state::generate_test(const struct m68k_gentest_item &gti)
 {
     printf("\nGenerate test %s", gti.name);
-    ts.test_ptr = ts.buf;
+    ts.ptr = ts.buf;
+    sfc32_seed(gti.name, ts.rstate);
+    for (u32 j = 0; j < 20; j++) sfc32(ts.rstate);
 
     for (u32 i = 0; i < NUMTESTS; i++) {
-        sfc32_seed(gti.name, ts.rstate);
-        for (u32 j = 0; j < 10; j++) sfc32(ts.rstate);
+        ts.cur = &ts.tests[i];
+        ts.log_transactions = 0;
+
         u32 rn = rint(ts.rstate, 0, gti.num_opcodes);
         u32 opcode = gti.opcodes[rn];
-        //u32 opcode = 0b1110011111011001;
         snprintf(ts.cur->name, 100, "%03d %s %04x", i, m68k_gentest_disasm[opcode], opcode);
-        sfc32_seed(gti.name, ts.rstate);
-        for (u32 j = 0; j < 10; j++) sfc32(ts.rstate);
 
-        ts.cur = &ts.tests[i];
         ts.transactions.num_transactions = 0;
 
         // So prefetches from the core won't register
-        ts.log_transactions = 0;
 
         initial_random_state(&ts.cur->initial, opcode);
         ts.cur->final.num_RAM = 2;
@@ -459,10 +648,14 @@ void testcpu_state::generate_test(struct m68k_gentest_item &gti)
 
         finalize_transactions();
         copy_state_from_cpu(ts.cur->final);
-
-
-        printf("\nExecuted %d cycles!", ICOUNT_START - m_cpu->m_icount);
+        /*u32 cycles_done = ICOUNT_START - m_cpu->m_icount;
+        if (cycles_done > 60) {
+            printf("\nHMMM. YO? %d %s", cycles_done, m68k_gentest_disasm[opcode]);
+            printf("\nD2 at start: %08x", ts.cur->initial.d[2]);
+        }*/
     }
+
+    write_tests_to_file(gti);
 }
 
 
