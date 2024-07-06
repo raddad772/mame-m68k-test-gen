@@ -49,6 +49,7 @@ void m68000_device::do_post_run()
 		m_inst_state = S_BUS_ERROR;
 		m_inst_substate = 0;
 		m_icount -= 10;
+        m_idle(10);
 		break;
 	}
 	m_post_run = 0;
@@ -100,38 +101,32 @@ u16 m68000_device::get_fc() const noexcept
 
 void m68000_device::execute_run()
 {
-	m_icount -= m_count_before_instruction_step;
-	if(m_icount < 0) {
+    m_count_before_instruction_step = 0;
+
+    if(m_icount > 0 && m_inst_substate) {
+        printf("\nDANGER!");
+        (this->*(m_handlers_p[m_inst_state]))();
+    }
+
+    while((m_icount > 0) && !m_instruction_done) {
+        //printf("\nCYCLE!");
+        if (m_inst_state >= S_first_instruction) {
+            m_ipc = m_pc - 2;
+            m_irdi = m_ird;
+
+            if (machine().debug_flags & DEBUG_FLAG_ENABLED)
+                debugger_instruction_hook(m_ipc);
+        }
+        (this->*(m_handlers_f[m_inst_state]))();
+    }
+
+    if(m_post_run)
+        do_post_run();
+
+	/*if(m_icount < 0) {
 		m_count_before_instruction_step = -m_icount;
 		m_icount = 0;
-	} else
-		m_count_before_instruction_step = 0;
-
-	for(;;) {
-		if(m_icount > 0 && m_inst_substate)
-			(this->*(m_handlers_p[m_inst_state]))();
-
-		while(m_icount > 0) {
-			if(m_inst_state >= S_first_instruction) {
-				m_ipc = m_pc - 2;
-				m_irdi = m_ird;
-
-				if(machine().debug_flags & DEBUG_FLAG_ENABLED)
-					debugger_instruction_hook(m_ipc);
-			}
-			(this->*(m_handlers_f[m_inst_state]))();
-		}
-
-		if(m_post_run)
-			do_post_run();
-		else
-			break;
-	}
-
-	if(m_icount < 0) {
-		m_count_before_instruction_step = -m_icount;
-		m_icount = 0;
-	}
+	}*/
 }
 
 device_memory_interface::space_config_vector m68000_device::memory_space_config() const
@@ -308,6 +303,7 @@ void m68000_device::state_import(const device_state_entry &entry)
 		[[fallthrough]];
 
 	case STATE_GENPCBASE: {
+        m_count_before_instruction_step = 0;
 		m_pc = m_ipc+2;
 		m_au = m_ipc+4;
 		auto dis = machine().disable_side_effects();

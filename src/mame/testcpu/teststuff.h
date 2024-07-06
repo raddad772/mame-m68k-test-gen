@@ -1,4 +1,4 @@
-#include "helpers/multisize_memaccess.c"
+#include "helpers/multisize_memaccess.h"
 
 #define M8 1
 #define M16 2
@@ -40,7 +40,7 @@ struct transaction {
 
 struct RAM_pair {
     u32 addr;
-    u8 val;
+    u16 val;
 };
 
 struct m68k_test_transactions {

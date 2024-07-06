@@ -2200,7 +2200,7 @@ def generate_source_from_code(code, gen_mode):
                                     source.append("\tm_edb = %s.read_interruptible(m_aob & ~1);" % (["m_opcodes", "m_program"][ci[2]]))
                                 else:
                                     source.append("\tm_edb = m_mmu->read_%s(m_aob & ~1, 0xffff);" % (["program", "data"][ci[2]]))
-                    source.append("\tm_icount -= 4;")
+                    source.append("\tm_icount -= 4; //memaccess")
                     if ci[8]:
                         if ci[4]:
                             source.append("\tif(m_icount <= %s) {" % ("m_bcount" if gen_mode & GEN.mcu else "0"))
@@ -2238,6 +2238,7 @@ def generate_source_from_code(code, gen_mode):
                 if not ci[3] and (ci[2] != 2 or not (gen_mode & GEN.m68008)):
                     source.append("\tif(m_aob & 1) {")
                     source.append("\t\tm_icount -= 4;")
+                    source.append("\t\tm_idle(4);")
                     source.append("\t\tm_inst_state = %s;" % ("S_DOUBLE_FAULT" if ci[8] else "S_ADDRESS_ERROR"));
                     if not (gen_mode & GEN.full):
                         source.append("\t\tm_inst_substate = 0;")
@@ -2287,6 +2288,7 @@ def generate_source_from_code(code, gen_mode):
                 source.append("\tm_t = %s;" % ci[1])
             elif ci[0] == "next" or ci[0] == "next_trace":
                 source.append("\tm_inst_state = m_next_state ? m_next_state : m_decode_table[m_ird];")
+                source.append("\tm_instruction_done = true;")
                 if not (gen_mode & GEN.full):
                     source.append("\tm_inst_substate = 0;")
                 if ci[0] == "next_trace":
@@ -2310,6 +2312,7 @@ def generate_source_from_code(code, gen_mode):
                 source.append("\t" + ci[1])
             elif ci[0] == "istep":
                 source.append("\tm_icount -= 2;")
+                source.append("\tm_idle(2);")
             elif ci[0] == "label":
                 source.append("%s:" % ci[1])
             elif ci[0] == "goto":

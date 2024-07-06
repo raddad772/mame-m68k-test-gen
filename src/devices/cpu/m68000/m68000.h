@@ -42,7 +42,9 @@ public:
 	virtual space_config_vector memory_space_config() const override;
 	virtual void device_start() override;
 	virtual void device_reset() override;
-
+    void (*m_idle_func)(void *, int);
+    void *m_idle_func_ptr;
+    void m_idle(int a) { m_idle_func(m_idle_func_ptr, a); }
 	void set_current_mmu(mmu *m);
 
 	template <typename... T> void set_tas_write_callback(T &&... args) { m_tas_write_callback.set(std::forward<T>(args)...); }
@@ -52,7 +54,15 @@ public:
 	u64 vpa_sync(offs_t address, u64 current_time);
 	u32 vpa_after(offs_t address);
 
-protected:
+    void set_dr(u32 n, u32 v) { set_state_int(M68K_D0 + n, v); }
+    void set_ar(u32 n, u32 v) { set_state_int(M68K_A0 + n, v); }
+    void set_usp(u32 v) { set_state_int(M68K_USP, v); };
+    void set_ssp(u32 v) { set_state_int(M68K_SP, v); };
+    void set_sr(u32 v) { set_state_int(M68K_SR, v); };
+    void set_ir(u32 v) { set_state_int(M68K_IR, v); };
+
+
+//protected:
 	// Processor special states
 	// Must match the states array in m68000gen.py
 	enum {
@@ -169,7 +179,8 @@ protected:
 	u64 m_last_vpa_time;
 
 	// Current instruction state and substate
-	u16 m_inst_state;
+    bool m_instruction_done;
+    u16 m_inst_state;
 	u16 m_inst_substate;
 	u32 m_next_state;
 	u32 m_post_run;

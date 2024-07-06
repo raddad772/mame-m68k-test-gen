@@ -18,6 +18,7 @@
 #include "teststuff.h"
 
 #define NUMTESTS 800
+#define ICOUNT_START 220
 
 #pragma clang diagnostic ignored "-Wunused-variable"
 #pragma clang diagnostic ignored "-Wc++11-narrowing"
@@ -27,6 +28,10 @@ struct m68k_test_struct {
     struct sfc32_state rstate;
     struct m68k_test tests[NUMTESTS];
     struct m68k_test *cur;
+
+    struct m68k_test_transactions transactions;
+            
+    u32 log_transactions;
 
     u8 *buf;
     u8 *test_ptr;
@@ -45,7 +50,7 @@ struct m68k_test_struct {
 //  DRIVER STATE
 //**************************************************************************
 
-
+void m_idle_bridge(void *p, int a);
 
 class testcpu_state : public driver_device
 {
@@ -60,10 +65,22 @@ public:
         //m_cpu->m_icountptr = 0;
 	}
 
-	// timer callback; used to wrest control of the system
-	TIMER_CALLBACK_MEMBER(timer_tick)
+	void idle(int howmany)
+    {
+        if (ts.log_transactions) {
+            transaction *t = &ts.transactions.items[ts.transactions.num_transactions++];
+            t->kind = tk_idle_cycles;
+            t->start_cycle = ICOUNT_START - m_cpu->m_icount;
+            t->len = howmany;
+        }
+    }
+
+    // timer callback; used to wrest control of the system
+    TIMER_CALLBACK_MEMBER(timer_tick)
 	{
         ts.buf = (u8 *)malloc(1024 * 1024 * 10);
+        m_cpu->m_idle_func_ptr = (void *)this;
+        m_cpu->m_idle_func = &m_idle_bridge; //std::bind(&testcpu_state::idle, *self, _2);
 
         //struct m68k_gentest_item* gti;
         for (u32 i = 0; i < 1; i++) {
@@ -104,7 +121,6 @@ public:
 			printf("Final state:\n");
 			dump_state(false);*/
 		//}
-        *m_cpu->m_icountptr = 0;
 
 		// all done; just bail
 		throw emu_fatalerror(0, "All done");
@@ -112,7 +128,10 @@ public:
 
     void generate_test(struct m68k_gentest_item &gti);
     void initial_random_state(struct m68k_test_state *s, u32 opcode);
-	// startup code; do basic configuration and set a timer to go off immediately
+    void copy_state_to_cpu(struct m68k_test_state &ts);
+    void finalize_transactions();
+    void copy_state_from_cpu(struct m68k_test_state &ts);
+
 	virtual void machine_start() override
 	{
 		// find the CPU's address space
@@ -128,59 +147,113 @@ public:
 	// dump the current CPU state
 	void dump_state(bool disassemble)
 	{
-		/*char buffer[256];
-		u8 instruction[32];
-		buffer[0] = 0;
-		int bytes = 0;
-		if (disassemble)
-		{
-			// fill in an array of bytes in the CPU's natural order
-			int maxbytes = m_cpu->max_opcode_bytes();
-			for (int bytenum = 0; bytenum < maxbytes; bytenum++)
-				instruction[bytenum] = m_space->read_byte(RAM_BASE + bytenum);
-
-			// disassemble the current instruction
-			bytes = m_cpu->disassemble(buffer, RAM_BASE, instruction, instruction) & DASMFLAG_LENGTHMASK;
-		}
-
-		// output the registers
-		printf("PC : %08X", u32(m_cpu->state_int(PPC_PC)));
-		if (disassemble && bytes > 0)
-		{
-			printf(" => ");
-			for (int bytenum = 0; bytenum < bytes; bytenum++)
-				printf("%02X", instruction[bytenum]);
-			printf("  %s", buffer);
-		}
-		printf("\n");
-		for (int regnum = 0; regnum < 32; regnum++)
-		{
-			printf("R%-2d: %08X   ", regnum, u32(m_cpu->state_int(PPC_R0 + regnum)));
-			if (regnum % 4 == 3) printf("\n");
-		}
-		printf("CR : %08X   LR : %08X   CTR: %08X   XER: %08X\n",
-				u32(m_cpu->state_int(PPC_CR)), u32(m_cpu->state_int(PPC_LR)),
-				u32(m_cpu->state_int(PPC_CTR)), u32(m_cpu->state_int(PPC_XER)));
-		for (int regnum = 0; regnum < 32; regnum++)
-		{
-			printf("F%-2d: %10g   ", regnum, u2d(m_cpu->state_int(PPC_F0 + regnum)));
-			if (regnum % 4 == 3) printf("\n");
-		}*/
 	}
 
 	// report reads from anywhere
 	u16 general_r(offs_t offset, u16 mem_mask = ~0)
 	{
-		u64 fulloffs = offset;
-		u64 result = fulloffs + (fulloffs << 8) + (fulloffs << 16) + (fulloffs << 24) + (fulloffs << 32);
-		printf("Read from %08X & %08X%08X = %08X%08X\n", offset * 8, (int)((mem_mask&0xffffffff00000000LL) >> 32) , (int)(mem_mask&0xffffffff), (int)((result&0xffffffff00000000LL) >> 32), (int)(result&0xffffffff));
-		return result;
+        // Check for existing in initial RAM
+        offset <<= 1;
+        bool found = false;
+        struct m68k_test_state *initial = &ts.cur->initial;
+        u32 v;
+        for (u32 i = 0; i < initial->num_RAM; i++) {
+            RAM_pair *p = &initial->RAM_pairs[i];
+            if (p->addr == offset) {
+                v = p->val & mem_mask;
+                found = true;
+                break;
+            }
+        }
+
+        // Check transactions from end to beginning
+        if ((!found) && (ts.transactions.num_transactions > 0)) {
+            for (i32 i = ts.transactions.num_transactions-1; i >= 0; i--) {
+                struct transaction *t = &ts.transactions.items[i];
+                if (((t->kind == tk_read) || (t->kind == tk_write)) && (t->addr_bus == offset)) {
+                    printf("\nFOUND IN TRANSACTIONS!");
+                    v = t->data_bus & mem_mask;
+                    found = true;
+                    break;
+                }
+            }
+        }
+        // If we haven't found it, make it up!
+        if (!found) {
+            v = sfc32(ts.rstate) & 0xFFFF;
+            if (offset < 0xEC) { // for vectors
+                v &= 0xFFFE;
+            }
+
+            // Add to initial RAM. Make sure we get the full value
+            if (ts.log_transactions) {
+                struct RAM_pair *p = &ts.cur->initial.RAM_pairs[ts.cur->initial.num_RAM++];
+                p->addr = offset;
+                p->val = v;
+
+                // Add to final RAM
+                p = &ts.cur->final.RAM_pairs[ts.cur->final.num_RAM++];
+                p->addr = offset;
+                p->val = v;
+            }
+
+            v &= mem_mask;
+        }
+
+        if (ts.log_transactions) {
+            transaction *t = &ts.transactions.items[ts.transactions.num_transactions++];
+            t->kind = tk_read;
+            t->data_bus = v;
+            t->addr_bus = offset;
+            t->start_cycle = ICOUNT_START - m_cpu->m_icount;
+            t->sz = (mem_mask == 0xFFFF) ? 2 : 1;
+            t->LDS = (mem_mask & 0xFF) != 0;
+            t->UDS = (mem_mask & 0xFF00) != 0;
+            t->fc = m_cpu->get_fc();
+            t->len = 4;
+
+            //printf("\nread addr:%06X & mask:%04x val:%04x", offset, mem_mask, v);
+        }
+		return v;
 	}
 
 	// report writes to anywhere
 	void general_w(offs_t offset, u16 data, u16 mem_mask = ~0)
 	{
-		printf("Write to %08X & %08X%08X = %08X%08X\n", offset * 8, (int)((mem_mask&0xffffffff00000000LL) >> 32) , (int)(mem_mask&0xffffffff), (int)((data&0xffffffff00000000LL) >> 32), (int)(data&0xffffffff));
+        offset <<= 1;
+		//printf("\nWrite to addr:%06X & mask:%04x val:%04x", offset, mem_mask, (unsigned int)data);
+        // Add to final RAM
+        // First search for any existing final RAM entries like it...
+        bool found = false;
+        struct RAM_pair* p = nullptr;
+        for (i32 i = ts.cur->final.num_RAM - 1; i >= 0; i--) {
+             p = &ts.cur->final.RAM_pairs[i];
+            if (p->addr == offset) {
+                found = true;
+                break;
+            }
+        }
+        if (found) { // Use existing. Take care to preserve a byte if needed
+            u16 reverse_mem_mask = ~mem_mask; // If we're only writing a byte, keep the other old byte...
+            p->val = (p->val & reverse_mem_mask) | (data & mem_mask);
+        }
+        else { // Create one
+            p = &ts.cur->final.RAM_pairs[ts.cur->final.num_RAM++];
+            p->addr = offset;
+            p->val = data;
+        }
+
+        // Add to transactions log
+        struct transaction *t = &ts.transactions.items[ts.transactions.num_transactions++];
+        t->kind = tk_write;
+        t->data_bus = data;
+        t->addr_bus = offset;
+        t->start_cycle = ICOUNT_START - m_cpu->m_icount;
+        t->sz = (mem_mask == 0xFFFF) ? 2 : 1;
+        t->LDS = (mem_mask & 0xFF) != 0;
+        t->UDS = (mem_mask & 0xFF00) != 0;
+        t->fc = m_cpu->get_fc();
+        t->len = 4;
 	}
 
 	void testcpu(machine_config &config);
@@ -191,6 +264,7 @@ public:
 	required_device<m68000_device> m_cpu;
 	required_shared_ptr<u16> m_ram;
 	address_space *m_space;
+    u32 log_transactions;
     struct m68k_test_struct ts;
 };
 
@@ -203,8 +277,8 @@ public:
 void testcpu_state::ppc_mem(address_map &map)
 {
     //map(0x0000, 0xffff).ram().share("ram");
-	map(0x00000000, 0xffffff).rw(FUNC(testcpu_state::general_r), FUNC(testcpu_state::general_w));
     map(0, 0xFFFFFF).ram().share("ram");
+    map(0x00000000, 0xFFFFFF).rw(FUNC(testcpu_state::general_r), FUNC(testcpu_state::general_w));
 }
 
 
@@ -252,29 +326,142 @@ void testcpu_state::initial_random_state(struct m68k_test_state *s, u32 opcode)
     s->prefetch[1] = sfc32(ts.rstate) & 0xFFFF;
 
     // num_RAM should be set to 4 initially and increased from there
-    s->num_RAM = 4;
+    s->num_RAM = 2;
 
-    s->RAM_pairs[0] = (RAM_pair) {.addr=(s->pc - 4) & 0xFFFFFF, .val = (u8)(opcode >> 8) & 0xFF};
-    s->RAM_pairs[1] = (RAM_pair) {.addr=(s->pc - 3) & 0xFFFFFF, .val = (u8)(opcode & 0xFF)};
-    s->RAM_pairs[2] = (RAM_pair) {.addr=(s->pc - 2) & 0xFFFFFF, .val = (u8)(s->prefetch[1] >> 8) & 0xFF};
-    s->RAM_pairs[3] = (RAM_pair) {.addr=(s->pc - 1) & 0xFFFFFF, .val = (u8)(s->prefetch[1] & 0xFF)};
+    s->RAM_pairs[0] = (RAM_pair) {.addr=(s->pc - 4) & 0xFFFFFF, .val = opcode };
+    s->RAM_pairs[1] = (RAM_pair) {.addr=(s->pc - 2) & 0xFFFFFF, .val = (u16)(s->prefetch[1])};
+}
+
+void testcpu_state::copy_state_to_cpu(struct m68k_test_state &ts)
+{
+    m_cpu->set_sr(ts.sr);
+    for (u32 i = 0; i < 8; i++) {
+        m_cpu->set_dr(i, ts.d[i]);
+        if (i != 7) m_cpu->set_ar(i, ts.a[i]);
+    }
+
+    m_cpu->set_ssp(ts.ssp);
+    m_cpu->set_usp(ts.usp);
+    m_cpu->set_pc(ts.pc-4);
+}
+
+void testcpu_state::finalize_transactions()
+{
+    // Combine runs of idle states into single sequences
+
+    m68k_test_transactions *newtlist = &ts.cur->transactions;
+    m68k_test_transactions *oldtlist = &ts.transactions;
+    newtlist->num_transactions = 0;
+
+    i32 in_idles = -1;
+    u32 idle_start = 0;
+    u32 cycle_num = 0;
+    for (u32 i = 0; i < oldtlist->num_transactions; i++) {
+        struct transaction *oldt = &oldtlist->items[i];
+        struct transaction *newt = nullptr;
+
+        u32 cur_cycle_num = cycle_num;
+        cycle_num += oldt->len;
+
+        if (oldt->kind == tk_idle_cycles) {
+            if (in_idles == -1) { // We are not in an idle run
+                in_idles = oldt->len;
+                idle_start = cur_cycle_num;
+            }
+            else
+                in_idles += oldt->len;
+            continue;
+        }
+        if (in_idles != -1) { // OK total up our idle cycles
+            newt = &newtlist->items[newtlist->num_transactions++];
+            newt->kind = tk_idle_cycles;
+            newt->len = (u32)in_idles;
+            newt->start_cycle = idle_start;
+            in_idles = -1;
+        }
+
+        newt = &newtlist->items[newtlist->num_transactions++];
+        newt->kind = oldt->kind;
+        newt->len = oldt->len;
+        if (oldt->start_cycle != cur_cycle_num) {
+            printf("\nOOPS old:%d new:%d", oldt->start_cycle, cur_cycle_num);
+        }
+        newt->addr_bus = oldt->addr_bus;
+        newt->data_bus = oldt->data_bus;
+        newt->start_cycle = cur_cycle_num;
+        newt->UDS = oldt->UDS;
+        newt->LDS = oldt->LDS;
+        newt->sz = oldt->sz;
+        newt->fc = oldt->fc;
+    }
+
+    if (in_idles != -1) { // OK total up our idle cycles
+        struct transaction *newt = &newtlist->items[newtlist->num_transactions++];
+        newt->kind = tk_idle_cycles;
+        newt->len = (u32)in_idles;
+        newt->start_cycle = idle_start;
+        in_idles = -1;
+    }
+}
+
+void testcpu_state::copy_state_from_cpu(struct m68k_test_state &ts)
+{
+    // Copy CPU to state
+    ts.pc = m_cpu->m_pc;
+    ts.prefetch[0] = m_cpu->m_ir;
+    ts.prefetch[1] = m_cpu->m_irc;
+    ts.sr = m_cpu->m_sr;
+    ts.usp = m_cpu->m_da[15];
+    ts.ssp = m_cpu->m_da[16];
+    for (u32 i = 0; i < 8; i++) {
+        ts.d[i] = m_cpu->m_da[i];
+        if (i != 7) ts.a[i] = m_cpu->m_da[i+8];
+    }
 }
 
 void testcpu_state::generate_test(struct m68k_gentest_item &gti)
 {
     printf("\nGenerate test %s", gti.name);
     ts.test_ptr = ts.buf;
-    sfc32_seed(gti.name, ts.rstate);
 
     for (u32 i = 0; i < NUMTESTS; i++) {
+        sfc32_seed(gti.name, ts.rstate);
+        for (u32 j = 0; j < 10; j++) sfc32(ts.rstate);
         u32 rn = rint(ts.rstate, 0, gti.num_opcodes);
         u32 opcode = gti.opcodes[rn];
+        //u32 opcode = 0b1110011111011001;
+        snprintf(ts.cur->name, 100, "%03d %s %04x", i, m68k_gentest_disasm[opcode], opcode);
+        sfc32_seed(gti.name, ts.rstate);
+        for (u32 j = 0; j < 10; j++) sfc32(ts.rstate);
 
         ts.cur = &ts.tests[i];
+        ts.transactions.num_transactions = 0;
 
-        ts.cur->transactions.num_transactions = 0;
+        // So prefetches from the core won't register
+        ts.log_transactions = 0;
 
         initial_random_state(&ts.cur->initial, opcode);
+        ts.cur->final.num_RAM = 2;
+        ts.cur->final.RAM_pairs[0] = ts.cur->initial.RAM_pairs[0];
+        ts.cur->final.RAM_pairs[1] = ts.cur->initial.RAM_pairs[1];
+
+        copy_state_to_cpu(ts.cur->initial);
+        ts.log_transactions = 1;
+        m_cpu->m_icount = ICOUNT_START;
+        m_cpu->m_instruction_done = 0;
+        m_cpu->m_count_before_instruction_step = 0;
+
+        m_cpu->execute_run();
+
+        if (m_cpu->m_icount < 10) {
+            printf("\nWARNING CYCLES ARE LOW %d", m_cpu->m_icount);
+        }
+
+        finalize_transactions();
+        copy_state_from_cpu(ts.cur->final);
+
+
+        printf("\nExecuted %d cycles!", ICOUNT_START - m_cpu->m_icount);
     }
 }
 
@@ -407,6 +594,13 @@ struct m68k_gentest_item m68k_gentests[M68K_NUM_GENTEST_ITEMS] = {
         (struct m68k_gentest_item) { .name="ORItoSR", .num_opcodes = 1, .opcodes = (u32 []) { 124,} },
         (struct m68k_gentest_item) { .name="ORItoCCR", .num_opcodes = 1, .opcodes = (u32 []) { 60,} },
 };
+
+
+void m_idle_bridge(void *p, int a)
+{
+    class testcpu_state *r = (class testcpu_state *)p;
+    r->idle(a);
+}
 
 
 //**************************************************************************
