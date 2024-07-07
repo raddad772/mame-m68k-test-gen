@@ -108,7 +108,7 @@ void m68000_device::execute_run()
         (this->*(m_handlers_p[m_inst_state]))();
     }
 
-    while((m_icount > 0) && !m_instruction_done) {
+    while(!m_instruction_done) {
         //printf("\nCYCLE!");
         if (m_inst_state >= S_first_instruction) {
             m_ipc = m_pc - 2;
@@ -118,6 +118,10 @@ void m68000_device::execute_run()
                 debugger_instruction_hook(m_ipc);
         }
         (this->*(m_handlers_f[m_inst_state]))();
+    }
+    if (m_inst_state >= S_first_instruction) {
+        m_ipc = m_pc - 2;
+        m_irdi = m_ird;
     }
 
     if(m_post_run)

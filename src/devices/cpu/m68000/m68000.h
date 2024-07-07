@@ -58,7 +58,7 @@ public:
     void set_ar(u32 n, u32 v) { set_state_int(M68K_A0 + n, v); }
     void set_usp(u32 v) { set_state_int(M68K_USP, v); };
     void set_ssp(u32 v) { set_state_int(M68K_SP, v); };
-    void set_sr(u32 v) { set_state_int(M68K_SR, v); };
+    void set_sr(u32 v) { set_state_int(M68K_SR, v); update_user_super(); };
     void set_ir(u32 v) { set_state_int(M68K_IR, v); };
 
 

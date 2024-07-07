@@ -83,45 +83,10 @@ public:
         m_cpu->m_idle_func_ptr = (void *)this;
         m_cpu->m_idle_func = &m_idle_bridge; //std::bind(&testcpu_state::idle, *self, _2);
 
-        //struct m68k_gentest_item* gti;
         for (u32 i = 0; i < M68K_NUM_GENTEST_ITEMS; i++) {
-            //gti = &m68k_gentests[i];
             generate_test(m68k_gentests[i]);
         }
-
-		// iterate over instructions
-		//for (auto & sample_instruction : sample_instructions)
-		//{
-			// write the instruction to execute, followed by a BLR which will terminate the
-			// basic block in the DRC
-			//m_space->write_dword(RAM_BASE, sample_instruction);
-			//m_space->write_dword(RAM_BASE + 4, 0x4e800020);
-            // initialize the register state
-			/*m_cpu->set_state_int(PPC_PC, RAM_BASE);
-			for (int regnum = 0; regnum < 32; regnum++)
-				m_cpu->set_state_int(PPC_R0 + regnum, regnum | (regnum << 8) | (regnum << 16) | (regnum << 24));
-			m_cpu->set_state_int(PPC_CR, 0);
-			m_cpu->set_state_int(PPC_LR, 0x12345678);
-			m_cpu->set_state_int(PPC_CTR, 0x1000);
-			m_cpu->set_state_int(PPC_XER, 0);
-			for (int regnum = 0; regnum < 32; regnum++)
-			{
-				double value = double(regnum | (regnum << 8) | (regnum << 16) | (regnum << 24));
-				m_cpu->set_state_int(PPC_F0 + regnum, d2u(value));
-			}
-
-			// output initial state
-			printf("==================================================\n");
-			printf("Initial state:\n");
-			dump_state(true);
-
-			// execute one instruction
-			m_cpu->run();
-
-			// dump the final register state
-			printf("Final state:\n");
-			dump_state(false);*/
-		//}
+        //generate_test(m68k_gentests[28]);
 
 		// all done; just bail
 		throw emu_fatalerror(0, "All done");
@@ -159,9 +124,10 @@ public:
 	{
         // Check for existing in initial RAM
         offset <<= 1;
+        offset &= 0xFFFFFF;
         bool found = false;
         struct m68k_test_state *initial = &ts.cur->initial;
-        u32 v;
+        u32 v = 0xFFFF;
         for (u32 i = 0; i < initial->num_RAM; i++) {
             RAM_pair *p = &initial->RAM_pairs[i];
             if (p->addr == offset) {
@@ -216,8 +182,9 @@ public:
             t->UDS = (mem_mask & 0xFF00) != 0;
             t->fc = m_cpu->get_fc();
             t->len = 4;
-
-            //printf("\nread addr:%06X & mask:%04x val:%04x", offset, mem_mask, v);
+        }
+        if (!ts.log_transactions) {
+            printf("\nUNLOGGED R:%06x V:%04x", offset, v);
         }
 		return v;
 	}
@@ -226,6 +193,7 @@ public:
 	void general_w(offs_t offset, u16 data, u16 mem_mask = ~0)
 	{
         offset <<= 1;
+        offset &= 0xFFFFFF;
 		//printf("\nWrite to addr:%06X & mask:%04x val:%04x", offset, mem_mask, (unsigned int)data);
         // Add to final RAM
         // First search for any existing final RAM entries like it...
@@ -298,9 +266,6 @@ void testcpu_state::testcpu(machine_config &config)
     /* basic machine hardware */
     M68000(config, m_cpu, XTAL(3'579'545));
     m_cpu->set_addrmap(AS_PROGRAM, &testcpu_state::ppc_mem);
-	//PPC603E(config, m_cpu, 66000000);
-	//m_cpu->set_bus_frequency(66000000);  // Multiplier 1, Bus = 66MHz, Core = 66MHz
-	//m_cpu->set_addrmap(AS_PROGRAM, &testcpu_state::ppc_mem);
 }
 
 u32 rint(sfc32_state &rs, u32 min, u32 max)
@@ -339,6 +304,7 @@ void testcpu_state::initial_random_state(struct m68k_test_state *s, u32 opcode)
 
 void testcpu_state::copy_state_to_cpu(struct m68k_test_state &ts)
 {
+    m_cpu->m_mmu = nullptr;
     m_cpu->set_sr(ts.sr);
     for (u32 i = 0; i < 8; i++) {
         m_cpu->set_dr(i, ts.d[i]);
@@ -407,12 +373,13 @@ void testcpu_state::finalize_transactions()
         newt->start_cycle = idle_start;
         in_idles = -1;
     }
+    ts.cur->num_cycles = cycle_num;
 }
 
 void testcpu_state::copy_state_from_cpu(struct m68k_test_state &ts)
 {
     // Copy CPU to state
-    ts.pc = m_cpu->m_pc;
+    ts.pc = m_cpu->m_au;
     ts.prefetch[0] = m_cpu->m_ir;
     ts.prefetch[1] = m_cpu->m_irc;
     ts.sr = m_cpu->m_sr;
@@ -483,7 +450,7 @@ void testcpu_state::write_transactions()
             tw = 2;
         }
         else if (t->kind == tk_write) {
-            tw = 3;
+            tw = 1;
         }
         else {
             assert(1==0);
@@ -618,6 +585,7 @@ void testcpu_state::generate_test(const struct m68k_gentest_item &gti)
     for (u32 j = 0; j < 20; j++) sfc32(ts.rstate);
 
     for (u32 i = 0; i < NUMTESTS; i++) {
+        //printf("\n\nTEST %d", i);
         ts.cur = &ts.tests[i];
         ts.log_transactions = 0;
 
@@ -630,11 +598,13 @@ void testcpu_state::generate_test(const struct m68k_gentest_item &gti)
         // So prefetches from the core won't register
 
         initial_random_state(&ts.cur->initial, opcode);
+        printf("\nINITIAL PC: %08x", ts.cur->initial.pc);
         ts.cur->final.num_RAM = 2;
         ts.cur->final.RAM_pairs[0] = ts.cur->initial.RAM_pairs[0];
         ts.cur->final.RAM_pairs[1] = ts.cur->initial.RAM_pairs[1];
 
         copy_state_to_cpu(ts.cur->initial);
+        printf("\nPC RETURNED BY PROCESSOR: m_pc:%08x m_ipc:%08x m_au:%08x", m_cpu->m_pc, m_cpu->m_ipc, m_cpu->m_au);
         ts.log_transactions = 1;
         m_cpu->m_icount = ICOUNT_START;
         m_cpu->m_instruction_done = 0;
