@@ -216,7 +216,7 @@ public:
         // Add to transactions log
         struct transaction *t = &ts.transactions.items[ts.transactions.num_transactions++];
         t->kind = tk_write;
-        t->data_bus = data;
+        t->data_bus = data & mem_mask;
         t->addr_bus = offset;
         t->start_cycle = ICOUNT_START - m_cpu->m_icount;
         t->sz = (mem_mask == 0xFFFF) ? 2 : 1;
