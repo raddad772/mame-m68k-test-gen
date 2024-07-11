@@ -17,7 +17,7 @@
 #include "disasm.h"
 #include "teststuff.h"
 
-#define NUMTESTS 800
+#define NUMTESTS 2500
 #define ICOUNT_START 220
 #define ALLOC_BUF_SIZE (10 * 1024 * 1024)
 
@@ -86,7 +86,7 @@ public:
         for (u32 i = 0; i < M68K_NUM_GENTEST_ITEMS; i++) {
             generate_test(m68k_gentests[i]);
         }
-        //generate_test(m68k_gentests[28]);
+        //generate_test(m68k_gentests[71]);
 
 		// all done; just bail
 		throw emu_fatalerror(0, "All done");
@@ -182,9 +182,6 @@ public:
             t->UDS = (mem_mask & 0xFF00) != 0;
             t->fc = m_cpu->get_fc();
             t->len = 4;
-        }
-        if (!ts.log_transactions) {
-            printf("\nUNLOGGED R:%06x V:%04x", offset, v);
         }
 		return v;
 	}
@@ -472,8 +469,9 @@ void testcpu_state::write_transactions()
         //     ptr += 16
         W32(t->fc);
         W32(t->addr_bus);
-        W32(t->sz - 1);
         W32(t->data_bus);
+        W32(t->UDS);
+        W32(t->LDS);
     }
 
     cW32(transactions_start, 0, ts.ptr - transactions_start);
@@ -585,7 +583,7 @@ void testcpu_state::generate_test(const struct m68k_gentest_item &gti)
     for (u32 j = 0; j < 20; j++) sfc32(ts.rstate);
 
     for (u32 i = 0; i < NUMTESTS; i++) {
-        //printf("\n\nTEST %d", i);
+    //for (u32 i = 0; i < 2; i++) {
         ts.cur = &ts.tests[i];
         ts.log_transactions = 0;
 
@@ -598,13 +596,11 @@ void testcpu_state::generate_test(const struct m68k_gentest_item &gti)
         // So prefetches from the core won't register
 
         initial_random_state(&ts.cur->initial, opcode);
-        printf("\nINITIAL PC: %08x", ts.cur->initial.pc);
         ts.cur->final.num_RAM = 2;
         ts.cur->final.RAM_pairs[0] = ts.cur->initial.RAM_pairs[0];
         ts.cur->final.RAM_pairs[1] = ts.cur->initial.RAM_pairs[1];
 
         copy_state_to_cpu(ts.cur->initial);
-        printf("\nPC RETURNED BY PROCESSOR: m_pc:%08x m_ipc:%08x m_au:%08x", m_cpu->m_pc, m_cpu->m_ipc, m_cpu->m_au);
         ts.log_transactions = 1;
         m_cpu->m_icount = ICOUNT_START;
         m_cpu->m_instruction_done = 0;

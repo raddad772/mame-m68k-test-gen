@@ -320,6 +320,7 @@ void m68000_device::state_import(const device_state_entry &entry)
 	}
 	case M68K_SR:
 		m_sr &= (SR_SR|SR_CCR);
+        m_isr = m_sr;
 		break;
 	}
 }

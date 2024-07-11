@@ -99025,6 +99025,7 @@ void m68000_device::rts_if() // 4e75 ffff
 
 void m68000_device::trapv_if() // 4e76 ffff
 {
+	printf("\ntrapv_if()");
 	// 06d trpv1
 	m_aob = m_au;
 	m_ir = m_irc;

@@ -99025,10 +99025,12 @@ void m68000_device::rts_df() // 4e75 ffff
 
 void m68000_device::trapv_df() // 4e76 ffff
 {
+	printf("\ntrapv_df()");
 	// 06d trpv1
 	m_aob = m_au;
 	m_ir = m_irc;
 	m_t = m_isr & SR_V;
+	printf("\nISR: %08x SR_V:%08x  AND:%08x", m_isr,SR_V, m_isr & SR_V);
 	m_alub = m_dbin;
 	m_ftu = m_sr;
 	if(m_t)
