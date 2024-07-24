@@ -99030,7 +99030,7 @@ void m68000_device::trapv_df() // 4e76 ffff
 	m_aob = m_au;
 	m_ir = m_irc;
 	m_t = m_isr & SR_V;
-	printf("\nISR: %08x SR_V:%08x  AND:%08x", m_isr,SR_V, m_isr & SR_V);
+	printf("\nISR: %08x SR_V:%08x  AND:%08x   S:%d", m_isr,SR_V, m_isr & SR_V, m_isr & SR_S);
 	m_alub = m_dbin;
 	m_ftu = m_sr;
 	if(m_t)

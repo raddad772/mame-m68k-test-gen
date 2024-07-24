@@ -11,7 +11,7 @@ struct m68k_gentest_item {
     u32 *opcodes;
 };
 
-#define M68K_NUM_GENTEST_ITEMS 125
+#define M68K_NUM_GENTEST_ITEMS 127
 extern struct m68k_gentest_item m68k_gentests[M68K_NUM_GENTEST_ITEMS];
 
 #endif
