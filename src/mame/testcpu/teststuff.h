@@ -21,7 +21,9 @@ enum transaction_kind {
     tk_idle_cycles,
     tk_read,
     tk_write,
-    tk_tas
+    tk_tas,
+    tk_read_addr_error,
+    tk_write_addr_error
 };
 
 struct transaction {

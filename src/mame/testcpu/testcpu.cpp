@@ -122,6 +122,8 @@ public:
 	// report reads from anywhere
 	u16 general_r(offs_t offset, u16 mem_mask = ~0)
 	{
+        u32 real_addr = m_cpu->m_aob;
+        u32 addr_error = (mem_mask == 0xFFFF) && (real_addr & 1);
         // Check for existing in initial RAM
         offset <<= 1;
         offset &= 0xFFFFFF;
@@ -157,7 +159,7 @@ public:
             }
 
             // Add to initial RAM. Make sure we get the full value
-            if (ts.log_transactions) {
+            if (ts.log_transactions && ! addr_error) {
                 struct RAM_pair *p = &ts.cur->initial.RAM_pairs[ts.cur->initial.num_RAM++];
                 p->addr = offset;
                 p->val = v;
@@ -173,7 +175,7 @@ public:
 
         if (ts.log_transactions) {
             transaction *t = &ts.transactions.items[ts.transactions.num_transactions++];
-            t->kind = tk_read;
+            t->kind = addr_error ? tk_read_addr_error : tk_read;
             t->data_bus = v;
             t->addr_bus = offset;
             t->start_cycle = ICOUNT_START - m_cpu->m_icount;
@@ -189,6 +191,9 @@ public:
 	// report writes to anywhere
 	void general_w(offs_t offset, u16 data, u16 mem_mask = ~0)
 	{
+        u32 real_addr = m_cpu->m_aob;
+        u32 addr_error = (mem_mask == 0xFFFF) && (real_addr & 1);
+
         offset <<= 1;
         offset &= 0xFFFFFF;
 		//printf("\nWrite to addr:%06X & mask:%04x val:%04x", offset, mem_mask, (unsigned int)data);
@@ -203,19 +208,20 @@ public:
                 break;
             }
         }
-        if (found) { // Use existing. Take care to preserve a byte if needed
-            u16 reverse_mem_mask = ~mem_mask; // If we're only writing a byte, keep the other old byte...
-            p->val = (p->val & reverse_mem_mask) | (data & mem_mask);
-        }
-        else { // Create one
-            p = &ts.cur->final.RAM_pairs[ts.cur->final.num_RAM++];
-            p->addr = offset;
-            p->val = data & mem_mask;
+        if (!addr_error) {
+            if (found) { // Use existing. Take care to preserve a byte if needed
+                u16 reverse_mem_mask = ~mem_mask; // If we're only writing a byte, keep the other old byte...
+                p->val = (p->val & reverse_mem_mask) | (data & mem_mask);
+            } else { // Create one
+                p = &ts.cur->final.RAM_pairs[ts.cur->final.num_RAM++];
+                p->addr = offset;
+                p->val = data & mem_mask;
+            }
         }
 
         // Add to transactions log
         struct transaction *t = &ts.transactions.items[ts.transactions.num_transactions++];
-        t->kind = tk_write;
+        t->kind = addr_error ? tk_write_addr_error : tk_write;
         t->data_bus = data & mem_mask;
         t->addr_bus = offset;
         t->start_cycle = ICOUNT_START - m_cpu->m_icount;
