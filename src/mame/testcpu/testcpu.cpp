@@ -173,6 +173,7 @@ public:
             v &= mem_mask;
         }
 
+        if (addr_error) v = 0;
         if (ts.log_transactions) {
             transaction *t = &ts.transactions.items[ts.transactions.num_transactions++];
             t->kind = addr_error ? tk_read_addr_error : tk_read;
