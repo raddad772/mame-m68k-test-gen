@@ -456,6 +456,12 @@ void testcpu_state::write_transactions()
         else if (t->kind == tk_write) {
             tw = 1;
         }
+        else if (t->kind == tk_write_addr_error) {
+            tw = 5;
+        }
+        else if (t->kind == tk_read_addr_error) {
+            tw = 4;
+        }
         else {
             assert(1==0);
         }
