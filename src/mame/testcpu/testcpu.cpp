@@ -86,7 +86,7 @@ public:
         for (u32 i = 0; i < M68K_NUM_GENTEST_ITEMS; i++) {
             generate_test(m68k_gentests[i]);
         }
-        //generate_test(m68k_gentests[71]);
+        //generate_test(m68k_gentests[100]);
 
 		// all done; just bail
 		throw emu_fatalerror(0, "All done");
@@ -127,6 +127,7 @@ public:
         // Check for existing in initial RAM
         offset <<= 1;
         offset &= 0xFFFFFF;
+        if (ts.log_transactions) printf("\nREAD FROM %06x mask:%04x", offset, mem_mask);
         bool found = false;
         struct m68k_test_state *initial = &ts.cur->initial;
         u32 v = 0xFFFF;
@@ -143,8 +144,8 @@ public:
         if ((!found) && (ts.transactions.num_transactions > 0)) {
             for (i32 i = ts.transactions.num_transactions-1; i >= 0; i--) {
                 struct transaction *t = &ts.transactions.items[i];
-                if (((t->kind == tk_read) || (t->kind == tk_write)) && (t->addr_bus == offset)) {
-                    printf("\nFOUND IN TRANSACTIONS!");
+                if (((t->kind == tk_read) || (t->kind == tk_write) || (t->kind== tk_read_addr_error) || (t->kind== tk_write_addr_error)) && (t->addr_bus == offset)) {
+                    //printf("\nFOUND IN TRANSACTIONS!");
                     v = t->data_bus & mem_mask;
                     found = true;
                     break;
@@ -159,7 +160,7 @@ public:
             }
 
             // Add to initial RAM. Make sure we get the full value
-            if (ts.log_transactions && ! addr_error) {
+            if (ts.log_transactions && (!addr_error)) {
                 struct RAM_pair *p = &ts.cur->initial.RAM_pairs[ts.cur->initial.num_RAM++];
                 p->addr = offset;
                 p->val = v;
@@ -173,13 +174,14 @@ public:
             v &= mem_mask;
         }
 
-        if (addr_error) v = 0;
+        //if (addr_error) v = 0;
         if (ts.log_transactions) {
             transaction *t = &ts.transactions.items[ts.transactions.num_transactions++];
             t->kind = addr_error ? tk_read_addr_error : tk_read;
             t->data_bus = v;
             t->addr_bus = offset;
             t->start_cycle = ICOUNT_START - m_cpu->m_icount;
+            //printf("\nSTART CYCLE:%d", t->start_cycle);
             t->sz = (mem_mask == 0xFFFF) ? 2 : 1;
             t->LDS = (mem_mask & 0xFF) != 0;
             t->UDS = (mem_mask & 0xFF00) != 0;
@@ -197,6 +199,7 @@ public:
 
         offset <<= 1;
         offset &= 0xFFFFFF;
+        //if (ts.log_transactions) printf("\nWRITE TO %06x val:%04x mask:%04x", offset, data, mem_mask);
 		//printf("\nWrite to addr:%06X & mask:%04x val:%04x", offset, mem_mask, (unsigned int)data);
         // Add to final RAM
         // First search for any existing final RAM entries like it...
@@ -378,6 +381,7 @@ void testcpu_state::finalize_transactions()
         in_idles = -1;
     }
     ts.cur->num_cycles = cycle_num;
+    printf("\nNUM CYCLES! %d", cycle_num);
 }
 
 void testcpu_state::copy_state_from_cpu(struct m68k_test_state &ts)
@@ -596,7 +600,8 @@ void testcpu_state::generate_test(const struct m68k_gentest_item &gti)
     for (u32 j = 0; j < 20; j++) sfc32(ts.rstate);
 
     for (u32 i = 0; i < NUMTESTS; i++) {
-    //for (u32 i = 0; i < 2; i++) {
+    //for (u32 i = 0; i < 5; i++) {
+        //printf("\n\nSUBTEST %d", i);
         ts.cur = &ts.tests[i];
         ts.log_transactions = 0;
 

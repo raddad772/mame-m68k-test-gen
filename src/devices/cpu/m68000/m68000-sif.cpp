@@ -81430,6 +81430,7 @@ void m68000_device::neg_b_pais_if() // 4420 fff8
 
 void m68000_device::neg_b_das_if() // 4428 fff8
 {
+	printf("\nSIF");
 	int ry = map_sp((m_irdi & 7) | 8);
 	// 1c2 adsw1
 	m_aob = m_au;
